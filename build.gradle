@@ -1,0 +1,5 @@
+// Top-level build file — 依赖版本由 Android Gradle Plugin 与 Kotlin 插件声明。
+plugins {
+    id 'com.android.application' version '8.2.2' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+}

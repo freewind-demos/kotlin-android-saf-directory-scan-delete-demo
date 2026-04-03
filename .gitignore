@@ -1,0 +1,27 @@
+# Kotlin / Android — 构建产物与本地配置（Gradle Wrapper 须保留在仓库中）
+
+# Gradle
+.gradle/
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 本机 SDK 路径、签名（勿入库）
+local.properties
+*.jks
+*.keystore
+key.properties
+
+# Kotlin
+.kotlin/
+
+# OS / 杂项
+.DS_Store
+Thumbs.db
