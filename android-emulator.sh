@@ -36,8 +36,8 @@ resolve_app_id() {
   [[ -f "$APP_BUILD_FILE" ]] || fail "missing app build file: $APP_BUILD_FILE"
 
   APP_ID="$(
-    rtk rg -o --replace '$1' 'applicationId\s*=\s*"([^"]+)"' "$APP_BUILD_FILE" \
-      | rtk head -n 1
+    rg -o --replace '$1' 'applicationId\s*=\s*"([^"]+)"' "$APP_BUILD_FILE" \
+      | head -n 1
   )"
   [[ -n "$APP_ID" ]] || fail "cannot resolve applicationId from: $APP_BUILD_FILE"
   printf '%s\n' "$APP_ID"

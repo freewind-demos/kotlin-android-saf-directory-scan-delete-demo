@@ -25,12 +25,12 @@ open_dir() {
   [[ "$OPEN_DIR_AFTER_BUILD" == "1" ]] || return 0
 
   if command -v open >/dev/null 2>&1; then
-    rtk open "$dir"
+    open "$dir"
     return 0
   fi
 
   if command -v xdg-open >/dev/null 2>&1; then
-    rtk xdg-open "$dir"
+    xdg-open "$dir"
     return 0
   fi
 
