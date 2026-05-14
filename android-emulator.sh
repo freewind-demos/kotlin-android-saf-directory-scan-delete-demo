@@ -3,10 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "${PROJECT_DIR:-$PWD}" && pwd)"
 PROJECT_NAME="$(basename "$ROOT_DIR")"
-ANDROID_DIR="$ROOT_DIR/native/android"
-GRADLEW="$ANDROID_DIR/gradlew"
-APK_PATH="$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
-APP_BUILD_FILE="$ANDROID_DIR/app/build.gradle.kts"
 EMULATOR_LOG_PATH="/tmp/${PROJECT_NAME}-android-emulator.log"
 
 APP_ID="${APP_ID:-}"
@@ -20,26 +16,71 @@ fail() {
   exit 1
 }
 
+resolve_gradlew() {
+  local candidate=""
+  local android_match=""
+  local root_match=""
+  local fallback=""
+
+  for candidate in \
+    "${GRADLEW:-}" \
+    "${ANDROID_DIR:-}/gradlew"
+  do
+    [[ -n "$candidate" ]] || continue
+    [[ -x "$candidate" ]] || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+
+  while read -r candidate; do
+    [[ -x "$candidate" ]] || continue
+    case "$candidate" in
+      "$ROOT_DIR/native/android/gradlew")
+        printf '%s\n' "$candidate"
+        return 0
+        ;;
+      "$ROOT_DIR/android/gradlew"|*/native/android/gradlew|*/android/gradlew)
+        [[ -n "$android_match" ]] || android_match="$candidate"
+        ;;
+      "$ROOT_DIR/gradlew")
+        [[ -n "$root_match" ]] || root_match="$candidate"
+        ;;
+      *)
+        [[ -n "$fallback" ]] || fallback="$candidate"
+        ;;
+    esac
+  done < <(fd -a -t f -g 'gradlew' "$ROOT_DIR")
+
+  for candidate in "$android_match" "$root_match" "$fallback"; do
+    [[ -n "$candidate" ]] || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+
+  return 1
+}
+
 SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 ADB_BIN="${ADB_BIN:-$SDK_ROOT/platform-tools/adb}"
 EMULATOR_BIN="${EMULATOR_BIN:-$SDK_ROOT/emulator/emulator}"
 
-[[ -x "$GRADLEW" ]] || fail "missing gradlew: $GRADLEW"
 [[ -x "$ADB_BIN" ]] || fail "missing adb: $ADB_BIN"
 
 resolve_app_id() {
+  local app_build_file="$1"
+
   if [[ -n "$APP_ID" ]]; then
     printf '%s\n' "$APP_ID"
     return 0
   fi
 
-  [[ -f "$APP_BUILD_FILE" ]] || fail "missing app build file: $APP_BUILD_FILE"
+  [[ -f "$app_build_file" ]] || fail "missing app build file: $app_build_file"
 
   APP_ID="$(
-    rg -o --replace '$1' 'applicationId\s*=\s*"([^"]+)"' "$APP_BUILD_FILE" \
+    rg -o --replace '$1' 'applicationId\s*=\s*"([^"]+)"' "$app_build_file" \
       | head -n 1
   )"
-  [[ -n "$APP_ID" ]] || fail "cannot resolve applicationId from: $APP_BUILD_FILE"
+  [[ -n "$APP_ID" ]] || fail "cannot resolve applicationId from: $app_build_file"
   printf '%s\n' "$APP_ID"
 }
 
@@ -127,20 +168,25 @@ ensure_emulator() {
 }
 
 build_apk() {
+  local gradlew_path="$1"
+  local android_dir="$2"
+  local apk_path="$3"
+
   log "build debug apk"
   (
-    cd "$ANDROID_DIR"
-    "$GRADLEW" assembleDebug
+    cd "$android_dir"
+    "$gradlew_path" assembleDebug
   )
-  [[ -f "$APK_PATH" ]] || fail "apk not found: $APK_PATH"
+  [[ -f "$apk_path" ]] || fail "apk not found: $apk_path"
 }
 
 install_and_launch() {
   local serial="$1"
   local app_id="$2"
+  local apk_path="$3"
 
   log "install apk -> $serial"
-  "$ADB_BIN" -s "$serial" install -r "$APK_PATH"
+  "$ADB_BIN" -s "$serial" install -r "$apk_path"
 
   log "launch app -> $app_id"
   "$ADB_BIN" -s "$serial" shell monkey -p "$app_id" -c android.intent.category.LAUNCHER 1 >/dev/null
@@ -149,8 +195,17 @@ install_and_launch() {
 main() {
   local serial=""
   local app_id=""
+  local gradlew_path=""
+  local android_dir=""
+  local apk_path=""
+  local app_build_file=""
 
-  app_id="$(resolve_app_id)"
+  gradlew_path="$(resolve_gradlew)" || fail "missing gradlew under: $ROOT_DIR"
+  android_dir="$(cd "$(dirname "$gradlew_path")" && pwd)"
+  apk_path="$android_dir/app/build/outputs/apk/debug/app-debug.apk"
+  app_build_file="$android_dir/app/build.gradle.kts"
+
+  app_id="$(resolve_app_id "$app_build_file")"
 
   serial="${ANDROID_SERIAL:-}"
   if [[ -n "$serial" ]]; then
@@ -160,11 +215,12 @@ main() {
     serial="$(ensure_emulator)"
   fi
 
-  build_apk
-  install_and_launch "$serial" "$app_id"
+  build_apk "$gradlew_path" "$android_dir" "$apk_path"
+  install_and_launch "$serial" "$app_id" "$apk_path"
 
   log "done"
-  log "apk: $APK_PATH"
+  log "android_dir: $android_dir"
+  log "apk: $apk_path"
   log "app_id: $app_id"
   log "project: $PROJECT_NAME"
   log "serial: $serial"
