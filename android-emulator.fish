@@ -15,6 +15,14 @@ function abs_path --argument path_value
     printf '%s/%s\n' (cd "$dir_path"; and pwd) "$file_name"
 end
 
+function resolve_script_dir
+    set -l script_path (status filename)
+    test -n "$script_path"; or fail "cannot resolve script path"
+    set -l resolved_script_path (path resolve "$script_path" 2>/dev/null)
+    test -n "$resolved_script_path"; or set resolved_script_path (abs_path "$script_path")
+    dirname "$resolved_script_path"
+end
+
 function resolve_gradlew
     set -l candidate
     set -l explicit_candidates
@@ -66,6 +74,16 @@ function resolve_gradlew
     return 1
 end
 
+function resolve_app_build_file --argument android_dir
+    for candidate in "$android_dir/app/build.gradle.kts" "$android_dir/app/build.gradle"
+        test -f "$candidate"; or continue
+        printf '%s\n' "$candidate"
+        return 0
+    end
+
+    fail "missing app build file under: $android_dir/app"
+end
+
 function resolve_app_id --argument app_build_file
     if test -n "$ANDROID_APP_ID"
         printf '%s\n' "$ANDROID_APP_ID"
@@ -74,7 +92,11 @@ function resolve_app_id --argument app_build_file
 
     test -f "$app_build_file"; or fail "missing app build file: $app_build_file"
 
-    set -g ANDROID_APP_ID (rg -o --replace '$1' 'applicationId\s*=\s*"([^"]+)"' "$app_build_file" | head -n 1)
+    set -l app_id_patterns 'applicationId\s*=\s*"([^"]+)"' 'applicationId\s+"([^"]+)"'
+    for pattern in $app_id_patterns
+        set -g ANDROID_APP_ID (rg -o --replace '$1' "$pattern" "$app_build_file" | head -n 1)
+        test -n "$ANDROID_APP_ID"; and break
+    end
     test -n "$ANDROID_APP_ID"; or fail "cannot resolve applicationId from: $app_build_file"
     printf '%s\n' "$ANDROID_APP_ID"
 end
@@ -121,7 +143,7 @@ end
 function wait_for_boot --argument serial
     $ANDROID_ADB_BIN -s "$serial" wait-for-device >/dev/null; or fail "adb wait-for-device failed: $serial"
 
-    for _ in (seq 120)
+    for boot_attempt in (seq 120)
         set -l booted ($ANDROID_ADB_BIN -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
         if test "$booted" = 1
             $ANDROID_ADB_BIN -s "$serial" shell input keyevent 82 >/dev/null 2>&1
@@ -149,7 +171,7 @@ function ensure_emulator
     log "start emulator: $avd_name"
     nohup "$ANDROID_EMULATOR_BIN" -avd "$avd_name" >"$ANDROID_EMULATOR_LOG_PATH" 2>&1 &
 
-    for _ in (seq 120)
+    for start_attempt in (seq 120)
         set serial (first_running_emulator)
         if test -n "$serial"
             wait_for_boot "$serial"
@@ -190,7 +212,7 @@ function main
     test -n "$android_dir"; or fail "cannot resolve android dir from: $gradlew_path"
 
     set -l apk_path "$android_dir/app/build/outputs/apk/debug/app-debug.apk"
-    set -l app_build_file "$android_dir/app/build.gradle.kts"
+    set -l app_build_file (resolve_app_build_file "$android_dir")
     set -l app_id (resolve_app_id "$app_build_file")
 
     set -l serial "$ANDROID_SERIAL"
@@ -212,7 +234,7 @@ function main
     log "serial: $serial"
 end
 
-set -l project_dir "$PWD"
+set -l project_dir (resolve_script_dir)
 if set -q PROJECT_DIR; and test -n "$PROJECT_DIR"
     set project_dir "$PROJECT_DIR"
 end
