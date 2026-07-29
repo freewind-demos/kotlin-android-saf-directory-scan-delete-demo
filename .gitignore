@@ -25,3 +25,4 @@ key.properties
 # OS / 杂项
 .DS_Store
 Thumbs.db
+ dist/
